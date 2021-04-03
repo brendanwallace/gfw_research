@@ -7,15 +7,16 @@ import pywdpa
 import geopandas
 import contextily as ctx
 from shapely import geometry
+from shapely import ops
 
 def join_on_lat_lon(points):
-    return points.groupby(['lat_bin', 'lon_bin'], as_index=False).aggregate({'lat_bin': 'first', 'lon_bin': 'first', 'fishing_hours': 'sum'})
+    return points.groupby(['cell_ll_lat', 'cell_ll_lon'], as_index=False).aggregate({'cell_ll_lat': 'first', 'cell_ll_lon': 'first', 'fishing_hours': 'sum'})
 
 
 ## Compute geometries for the points
 def compute_box(row, width=0.1):
-    x = float(row['lon_bin'] * width)
-    y = float(row['lat_bin'] * width)
+    x = float(row['cell_ll_lon'])
+    y = float(row['cell_ll_lat'])
     return geometry.box(x, y, x+width, y+width)
 
 
@@ -27,7 +28,7 @@ def convert_to_geo(points, box=True):
     else:
         return geopandas.GeoDataFrame(
             points,
-            geometry=geopandas.points_from_xy(points['lon_bin']*0.1 + 0.05, points['lat_bin']*0.1 + 0.05)
+            geometry=geopandas.points_from_xy(points['cell_ll_lon']*0.1 + 0.05, points['cell_ll_lat']*0.1 + 0.05)
         ).set_crs(epsg=4326)
 
 
@@ -43,8 +44,9 @@ def table_of_in_out_pre_post(points_of_mpa_ships, mpa, date):
     geopoints_ = convert_to_geo(points_of_mpa_ships, box=True)
     geopoints_['pre'] = geopoints_['date'] < date
     # fastest way to do this is just this whole join:
-    print('running sjoin on geopoints of mpa ships')
     geopoints_['in_mpa'] = ~geopandas.sjoin(geopoints_, mpa[['geometry']], how='left', op='within')['index_right'].isnull()
+    
+
     # TODO - what about on the border/indeterminate?
     # geopoints_['intersects_mpa'] = ~geopandas.sjoin(geopoints_, mpa[['geometry']], how='left', op='intersects')['index_right'].isnull()
     aggregated_ = geopoints_.groupby(['mmsi', 'in_mpa', 'pre'], as_index=False).aggregate({'fishing_hours': 'sum', 'mmsi': 'first'})
@@ -67,18 +69,32 @@ def plot_effort_with_world(effort, mpa, linewidth=0.5, title=''):
     plt.title(title)
 
 
-def analyze_mpa(geopoints_sampled, full_points, mpa, date, plot_pre_post=True):
-    #mpa = mpas[mpas['WDPAID'] == 555577562.0]
-
+def points_of_interest(geopoints_sampled, points_by_year, mpa, date):
     print('running sjoin... ', end='')
     mpa_points = geopandas.sjoin(geopoints_sampled, mpa, op='within')
     print('\nfound {} sampled points in the mpa from {} ships'.format(
         mpa_points.shape[0], mpa_points['mmsi'].nunique()))
 
-    points_of_mpa_ships = geopandas.GeoDataFrame(full_points[full_points['mmsi'].isin(mpa_points['mmsi'])])
+    if mpa_points.shape[0] == 0:
+        print('exiting: found no points')
+        return
+
+    points_of_mpa_ships = []
+    for _, points in points_by_year.items():
+        points_of_mpa_ships.append(points[points['mmsi'].isin(mpa_points['mmsi'])])
+    points_of_mpa_ships = geopandas.GeoDataFrame(pandas.concat(points_of_mpa_ships))
 
     print('found {} points of mpa ships'.format(points_of_mpa_ships.shape[0]))
-    
+    return points_of_mpa_ships
+
+
+def analyze_mpa(geopoints_sampled, points_by_year, mpa, date, plot_pre_post=True):
+    mpa = mpa.dissolve(by='WDPAID')
+
+    points_of_mpa_ships = points_of_interest(geopoints_sampled, points_by_year, mpa, date)
+    if points_of_mpa_ships is None:
+        return
+
     table = table_of_in_out_pre_post(points_of_mpa_ships, mpa, date,).sort_values('in_pre', ascending=False)
     
     pre = convert_to_geo(
@@ -90,5 +106,7 @@ def analyze_mpa(geopoints_sampled, full_points, mpa, date, plot_pre_post=True):
         plot_effort_with_world(pre, mpa, title='effort pre-closure')
         plot_effort_with_world(post, mpa, title='effort post-closure')
  
-    return table, pre, post
+    return table, pre, post, points_of_mpa_ships
 
+def test_this():
+    print('yes')

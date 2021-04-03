@@ -38,7 +38,7 @@ def load_mpas():
 def load_points():
     ## Load the fishing hours data (this is kinda slow)
     print('loading points')
-    filenames = os.listdir(DATA_PATH + 'daily_csvs')
+    filenames = os.listdir(DATA_PATH + 'daily_csvs_v2')
 
     # this might be faster but the status printout is nice:
     # points = pandas.concat([geopandas.read_file('data/daily_csvs/' + filename) for filename in filenames])
@@ -47,13 +47,36 @@ def load_points():
     points = []
     for filename in filenames:
         print(f'\r {filename} {counted}/{len(filenames)}', end='')
-        points.append(pandas.read_csv(DATA_PATH + '/daily_csvs/' + filename,
+        points.append(pandas.read_csv(DATA_PATH + 'daily_csvs_v2/' + filename,
                                           dtype={'lat_bin': 'int16',
                                                  'lon_bin': 'int16',
                                                  'mmsi': 'int32',
                                                  'fishing_hours': 'float32'},
                                      parse_dates=['date']))
         counted += 1
-    print('\nloaded.')
+    print('\nloaded; concatenating.')
     return pandas.concat(points) # deliberately overwriting points
-    
+
+def convert_points_to_parquet(year):
+    filenames = os.listdir(DATA_PATH + 'daily_csvs_v2')
+    counted = 0
+    points = []
+    for filename in filenames:
+        if year in filename:
+            print(f'\r {filename} {counted}/{len(filenames)}', end='')
+            points.append(pandas.read_csv(DATA_PATH + 'daily_csvs_v2/' + filename,
+                                              dtype={'lat_bin': 'int16',
+                                                     'lon_bin': 'int16',
+                                                     'mmsi': 'int32',
+                                                     'fishing_hours': 'float32'},
+                                         parse_dates=['date']))
+            counted += 1
+    points = pandas.concat(points)
+    points.to_parquet(year + ".parquet")
+
+
+def convert_all():
+    for year in range(2012, 2021):
+        year_str = str(year)
+        print("converting " + year_str)
+        convert_points_to_parquet(year_str)
