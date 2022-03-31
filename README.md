@@ -3,8 +3,10 @@
 This repository primarily contains jupyter notebooks used to analyze
 global fishing watch data:
 https://globalfishingwatch.org/data-download/datasets/public-fishing-effort
+
 in conjunction with mpa boundaries from mpatlas:
 https://mpatlas.org/zones/
+
 and:
 https://www.protectedplanet.net/en
 
